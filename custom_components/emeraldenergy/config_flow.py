@@ -65,10 +65,9 @@ async def validate_input(hass: HomeAssistant, data: dict[str, Any]) -> dict[str,
         # credentials".
         raise CannotConnect from err
     except Exception as err:
-        # A response was received but rejected: getLoginToken raises a bare
-        # Exception("Failed to log into Emerald API with supplied credentials")
-        # for a non-200 sign-in response, with no narrower type to catch.
-        raise InvalidAuth from err
+        if str(err) == "Failed to log into Emerald API with supplied credentials":
+            raise InvalidAuth from err
+        raise
     if not logged_in:
         raise InvalidAuth
 

@@ -310,11 +310,11 @@ class EmeraldWeeklyEnergySensor(SensorEntity):
         self._attr_native_value = None
         self._attr_native_unit_of_measurement = UnitOfEnergy.KILO_WATT_HOUR
         # No device_class: HA's ENERGY device class only permits state_class
-        # total/total_increasing, and MEASUREMENT is the correct class for
-        # this rolling sum -- see the class docstring. Dropping device_class
-        # keeps the unit and MEASUREMENT together; it just won't feed the
-        # Energy dashboard, which is correct since a rolling window isn't a
-        # period total.
+        # total/total_increasing (confirmed by a startup warning on the live
+        # box), and MEASUREMENT is the correct class for this rolling sum --
+        # see the class docstring. Dropping device_class keeps the unit and
+        # MEASUREMENT together; it just won't feed the Energy dashboard,
+        # which is correct since a rolling window isn't a period total.
         self._attr_state_class = SensorStateClass.MEASUREMENT
         self._attr_icon = "mdi:calendar-week"
 

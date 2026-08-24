@@ -54,6 +54,22 @@ def _call_hws(action: str, func, *args) -> None:
         ) from err
 
 
+def tank_capacity_percent(current: float, target: float) -> tuple[int, int]:
+    """Estimate tank capacity the way the Emerald app does.
+
+    Tank capacity is not returned by the API; each degree below target costs
+    ~2.3% capacity, and the app displays the result snapped to the nearest
+    20% step.
+
+    :returns: (exact percent, percent rounded to the nearest 20%)
+    """
+    raw = 100 - 2.3 * (target - current)
+    clamped = max(0.0, min(100.0, raw))
+    percent = int(round(clamped))
+    rounded = int(round(clamped / 20) * 20)
+    return percent, rounded
+
+
 PLATFORM_SCHEMA = vol.Schema(
     {
         vol.Required(CONF_USERNAME): cv.string,
@@ -72,8 +88,10 @@ async def async_setup_entry(
     # Get the shared EmeraldHWS data from hass.data
     entry_data = hass.data[DOMAIN].get(config_entry.entry_id)
     if not entry_data:
-        _LOGGER.error("No Emerald HWS data found in hass data")
-        return False
+        # __init__.py always populates this before forwarding to platforms, so
+        # reaching here means that invariant broke -- fail loudly rather than
+        # silently returning False, which HA's forwarder ignores anyway.
+        raise HomeAssistantError("No Emerald HWS data found in hass data")
 
     emerald_hws_instance = entry_data["instance"]
     callback_dispatcher = entry_data["dispatcher"]
@@ -103,30 +121,44 @@ class EmeraldWaterHeater(WaterHeaterEntity):
         self._hws_uuid = hws_uuid
         self._callback_dispatcher = callback_dispatcher
         gi = emerald_hws_instance.getInfo(hws_uuid)
-        status = emerald_hws_instance.getFullStatus(hws_uuid)
         self._serial_number = gi.get("serial_number")
         self._brand = gi.get("brand")
         self._name = f"{self._brand} {self._serial_number}"
-        self._current_temperature = status.get("last_state").get("temp_current")
-        self._target_temperature = status.get("last_state").get("temp_set")
-        self._running = emerald_hws_instance.isOn(hws_uuid)
-        self._current_mode = emerald_hws_instance.currentMode(hws_uuid)
         self._operation_list = [
             STATE_HEAT_PUMP,
             STATE_PERFORMANCE,
             STATE_ECO,
             STATE_OFF,
         ]
-        self._is_heating = emerald_hws_instance.isHeating(hws_uuid)
+        # State attrs (temperature, running, mode, heating) are left unset here.
+        # async_setup_entry calls async_add_entities(water_heaters, True), which
+        # runs update() via the executor before this entity's state is ever
+        # written to HA -- fetching status here too just duplicated that call.
+        self._current_temperature = None
+        self._target_temperature = None
+        self._running = False
+        self._current_mode = None
+        self._is_heating = False
         self._attr_icon = "mdi:water-boiler"
         self._attr_precision = PRECISION_WHOLE
+        # Matches sensor.py's device_info so both entities group under one device.
+        self._attr_device_info = {
+            "identifiers": {(DOMAIN, hws_uuid)},
+            "name": self._name,
+            "manufacturer": self._brand,
+            "model": "Hot Water System",
+            "serial_number": self._serial_number,
+        }
         # Register with the callback dispatcher instead of directly with the API
         callback_dispatcher.register_callback(self.update_callback)
 
     @property
     def supported_features(self) -> int:
         """Return the list of supported features."""
-        return WaterHeaterEntityFeature.OPERATION_MODE
+        return (
+            WaterHeaterEntityFeature.OPERATION_MODE
+            | WaterHeaterEntityFeature.ON_OFF
+        )
 
     @property
     def name(self) -> str:
@@ -175,13 +207,9 @@ class EmeraldWaterHeater(WaterHeaterEntity):
         current = self._current_temperature
         target = self._target_temperature
         if current is not None and target is not None:
-            # Tank capacity is not returned by the API; derive it the same way the
-            # Emerald app does: each degree below target costs ~2.3% capacity, and
-            # the app displays the result snapped to the nearest 20% step.
-            raw = 100 - 2.3 * (target - current)
-            clamped = max(0.0, min(100.0, raw))
-            attrs["tank_capacity_percent"] = int(round(clamped))
-            attrs["tank_capacity_percent_rounded"] = int(round(clamped / 20) * 20)
+            percent, rounded = tank_capacity_percent(current, target)
+            attrs["tank_capacity_percent"] = percent
+            attrs["tank_capacity_percent_rounded"] = rounded
 
         return attrs
 
@@ -193,6 +221,10 @@ class EmeraldWaterHeater(WaterHeaterEntity):
             return STATE_PERFORMANCE
         elif mode == 2:
             return STATE_ECO
+        # An unrecognised mode int would otherwise return None here, which is
+        # not a member of operation_list and fails HA's state validation.
+        _LOGGER.warning("emeraldhws: unknown mode %r for %s", mode, self._name)
+        return STATE_HEAT_PUMP
 
     def set_operation_mode(self, operation_mode: str) -> None:
         """Set the internal state given a HASS state."""
@@ -229,7 +261,7 @@ class EmeraldWaterHeater(WaterHeaterEntity):
 
     def update_callback(self):
         """Schedules an update within HASS (called from the module's thread)."""
-        _LOGGER.info("emeraldhws: callback called")
+        _LOGGER.debug("emeraldhws: callback called")
         if self.hass is None:
             # The emerald_hws MQTT thread can fire callbacks before the entity
             # is added to HASS (or after removal). schedule_update_ha_state is
@@ -245,7 +277,7 @@ class EmeraldWaterHeater(WaterHeaterEntity):
 
     def update(self):
         """Update with values from HWS."""
-        _LOGGER.info("emeraldhws: updating internal state from module")
+        _LOGGER.debug("emeraldhws: updating internal state from module")
         state = self._emerald_hws.getFullStatus(self._hws_uuid)
 
         if state is not None:

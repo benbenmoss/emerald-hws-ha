@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime, date
 
 from homeassistant import config_entries
 from homeassistant.components.sensor import (
@@ -13,12 +12,15 @@ from homeassistant.components.sensor import (
 )
 from homeassistant.const import UnitOfEnergy
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import HomeAssistantError
+from homeassistant.util import dt as dt_util
 from emerald_hws.emeraldhws import EmeraldHWS
 
 from .const import (
     DOMAIN,
     CONF_ENABLE_ENERGY_MONITORING,
 )
+from .helpers import effective_config
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -29,16 +31,19 @@ async def async_setup_entry(
     async_add_entities,
 ):
     """Set up the energy monitoring sensors for Emerald HWS."""
-    # Check if energy monitoring is enabled in config
-    if not config_entry.data.get(CONF_ENABLE_ENERGY_MONITORING, True):
+    # Check if energy monitoring is enabled in config (data or options, the
+    # latter set later via the options flow)
+    if not effective_config(config_entry).get(CONF_ENABLE_ENERGY_MONITORING, True):
         _LOGGER.info("Energy monitoring is disabled in configuration")
         return True
 
     # Get the shared EmeraldHWS data from hass.data
     entry_data = hass.data[DOMAIN].get(config_entry.entry_id)
     if not entry_data:
-        _LOGGER.error("No Emerald HWS data found in hass data")
-        return False
+        # __init__.py always populates this before forwarding to platforms, so
+        # reaching here means that invariant broke -- fail loudly rather than
+        # silently returning False, which HA's forwarder ignores anyway.
+        raise HomeAssistantError("No Emerald HWS data found in hass data")
 
     emerald_hws_instance = entry_data["instance"]
     callback_dispatcher = entry_data["dispatcher"]
@@ -84,8 +89,12 @@ class EmeraldEnergySensor(SensorEntity):
         self._attr_device_class = SensorDeviceClass.ENERGY
         self._attr_state_class = SensorStateClass.TOTAL
         self._attr_icon = "mdi:lightning-bolt"
-        self._last_reset = None
-        self._today = date.today()
+        self._today = dt_util.now().date()
+        # Set at construction, not left None until the first observed day
+        # rollover -- HA's statistics layer expects a tz-aware last_reset for a
+        # TOTAL state_class, and a day-one sensor otherwise has no reset marker
+        # at all until the first midnight is caught by an MQTT callback.
+        self._last_reset = dt_util.start_of_local_day(self._today)
 
         # Get device info for proper integration
         gi = emerald_hws_instance.getInfo(hws_uuid)
@@ -108,8 +117,10 @@ class EmeraldEnergySensor(SensorEntity):
         # Register for updates with callback dispatcher
         callback_dispatcher.register_callback(self.update_callback)
 
-        # Initialize energy value
-        self.update_energy_value()
+        # Energy value is left unset here: async_setup_entry calls
+        # async_add_entities(sensors, True), which runs update() via the
+        # executor before this entity's state is ever written to HA -- fetching
+        # it here too just duplicated that call.
 
     @property
     def last_reset(self):
@@ -136,10 +147,10 @@ class EmeraldEnergySensor(SensorEntity):
         """Update the energy value from the API."""
         try:
             # Check if we need to reset (new day)
-            today = date.today()
+            today = dt_util.now().date()
             if today != self._today:
                 self._today = today
-                self._last_reset = datetime.combine(today, datetime.min.time())
+                self._last_reset = dt_util.start_of_local_day(today)
                 _LOGGER.info(f"Daily energy sensor reset for {self._attr_name}")
 
             # Get daily energy usage

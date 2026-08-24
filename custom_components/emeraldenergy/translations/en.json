@@ -1,7 +1,8 @@
 {
     "config": {
         "abort": {
-            "already_configured": "Device is already configured"
+            "already_configured": "Device is already configured",
+            "reauth_successful": "Re-authentication was successful"
         },
         "error": {
             "cannot_connect": "Failed to connect",
@@ -15,6 +16,24 @@
                     "username": "Username for Emerald app",
                     "connection_timeout": "Connection timeout in minutes (default: 720)",
                     "health_check": "Health check interval in minutes (default: 60)"
+                }
+            },
+            "reauth_confirm": {
+                "title": "Reauthenticate Emerald Hot Water System",
+                "description": "The Emerald cloud rejected the stored credentials. Enter the current password to reconnect.",
+                "data": {
+                    "password": "Password for Emerald app"
+                }
+            }
+        }
+    },
+    "options": {
+        "step": {
+            "init": {
+                "data": {
+                    "connection_timeout": "Connection timeout in minutes (default: 720)",
+                    "health_check": "Health check interval in minutes (default: 60)",
+                    "enable_energy_monitoring": "Enable daily energy monitoring sensors"
                 }
             }
         }

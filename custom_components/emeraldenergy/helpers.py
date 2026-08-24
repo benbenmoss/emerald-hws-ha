@@ -120,6 +120,32 @@ def is_awscrt_straddle_error(err: BaseException) -> bool:
     return False
 
 
+def is_invalid_credentials_error(err: BaseException) -> bool:
+    """Report whether a connect() failure came from a rejected sign-in.
+
+    emerald_hws.getLoginToken raises a bare Exception with this exact message
+    when the Emerald API returns a non-200 sign-in response -- no narrower type
+    to catch. Distinguishing it lets async_setup_entry raise
+    ConfigEntryAuthFailed (triggers HA's reauth flow) instead of
+    ConfigEntryNotReady (retries forever with credentials that will never
+    start working on their own).
+    """
+    for link in _exception_chain(err):
+        if str(link) == "Failed to log into Emerald API with supplied credentials":
+            return True
+    return False
+
+
+def effective_config(entry) -> dict[str, Any]:
+    """Merge a config entry's data and options, options taking precedence.
+
+    connection_timeout/health_check/enable_energy_monitoring are set at config
+    flow time (entry.data) but can be changed afterwards via the options flow
+    (entry.options), which HA layers separately rather than merging itself.
+    """
+    return {**entry.data, **entry.options}
+
+
 def create_hws(config: Mapping[str, Any]) -> EmeraldHWS:
     """Build an EmeraldHWS client from config entry data or config flow input.
 

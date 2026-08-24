@@ -10,15 +10,22 @@ from emerald_hws.emeraldhws import EmeraldHWS
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
-from homeassistant.exceptions import ConfigEntryError, ConfigEntryNotReady
+from homeassistant.exceptions import (
+    ConfigEntryAuthFailed,
+    ConfigEntryError,
+    ConfigEntryNotReady,
+)
 
 from .const import DOMAIN
-from .helpers import create_hws, is_awscrt_straddle_error
+from .helpers import (
+    create_hws,
+    effective_config,
+    is_awscrt_straddle_error,
+    is_invalid_credentials_error,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
-# TODO List the platforms that you want to support.
-# For your initial PR, limit it to 1 platform.
 PLATFORMS: list[Platform] = [Platform.WATER_HEATER, Platform.SENSOR]
 
 
@@ -48,7 +55,11 @@ class CallbackDispatcher:
     def dispatch(self):
         """Dispatch the callback to all registered listeners."""
         _LOGGER.debug(f"Dispatching callback to {len(self._callbacks)} listeners")
-        for callback in self._callbacks:
+        # Snapshot: this runs on the emerald_hws MQTT thread while
+        # register_callback/unregister_callback run on the event-loop thread, so
+        # iterating the live list risks a "list changed size during iteration"
+        # error or a skipped callback.
+        for callback in list(self._callbacks):
             try:
                 callback()
             except Exception:
@@ -77,7 +88,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # Create and store the EmeraldHWS instance for shared access
     try:
         emerald_hws_instance = await hass.async_add_executor_job(
-            _create_and_connect, entry.data
+            _create_and_connect, effective_config(entry)
         )
     except Exception as err:
         # emerald_hws raises bare Exceptions, and its awsiotsdk/awscrt stack can fail
@@ -93,6 +104,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 "Home Assistant process. Restart Home Assistant to clear it. See "
                 "the integration README section 'Errors mentioning awscrt during "
                 f"setup' if it persists. Underlying error: {err}"
+            ) from err
+        if is_invalid_credentials_error(err):
+            # Retrying won't help credentials that are actually wrong; prompt
+            # the user to fix them via HA's reauth flow instead.
+            raise ConfigEntryAuthFailed(
+                "The Emerald cloud rejected the configured username/password"
             ) from err
         # Anything else is assumed transient, so let HA retry with backoff.
         raise ConfigEntryNotReady(
@@ -116,6 +133,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         )
 
         await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+        # Options (connection_timeout/health_check/enable_energy_monitoring) take
+        # effect on the next connect(), so changing them via the options flow
+        # needs a reload to actually apply.
+        entry.async_on_unload(entry.add_update_listener(_async_reload_entry))
     except BaseException:
         # BaseException, not Exception: HA cancels in-flight setup tasks on shutdown
         # and when a reload races setup, and CancelledError would otherwise skip the
@@ -141,6 +162,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         raise
 
     return True
+
+
+async def _async_reload_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """Reload the entry when its options change, so the new values take effect."""
+    await hass.config_entries.async_reload(entry.entry_id)
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:

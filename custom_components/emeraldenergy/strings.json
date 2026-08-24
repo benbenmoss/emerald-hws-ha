@@ -37,5 +37,19 @@
         }
       }
     }
+  },
+  "issues": {
+    "awscrt_version_straddle": {
+      "title": "Emerald Hot Water System cannot connect: mixed awscrt versions",
+      "description": "The awscrt package used to talk to the Emerald cloud is loaded at two different versions in this Home Assistant process, which cannot be fixed without a restart. Select **Submit** to restart Home Assistant now, or restart manually later.",
+      "fix_flow": {
+        "step": {
+          "confirm": {
+            "title": "Restart Home Assistant to fix the Emerald connection",
+            "description": "The awscrt package used to talk to the Emerald cloud is loaded at two different versions in this process. Restarting Home Assistant reloads it cleanly and clears the problem. Select **Submit** to restart now."
+          }
+        }
+      }
+    }
   }
 }

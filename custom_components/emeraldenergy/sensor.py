@@ -148,7 +148,8 @@ class EmeraldEnergySensor(SensorEntity):
         try:
             # Check if we need to reset (new day)
             today = dt_util.now().date()
-            if today != self._today:
+            rolled_over = today != self._today
+            if rolled_over:
                 self._today = today
                 self._last_reset = dt_util.start_of_local_day(today)
                 _LOGGER.info(f"Daily energy sensor reset for {self._attr_name}")
@@ -159,6 +160,13 @@ class EmeraldEnergySensor(SensorEntity):
                 self._attr_native_value = round(
                     daily_energy, 3
                 )  # Round to 3 decimal places
+            elif rolled_over:
+                # No reading for today yet: the device reports on its own
+                # schedule and may not have pushed one since midnight. This is
+                # the expected value right after a TOTAL reset, not a failure
+                # -- reporting it as unknown would leave a daily gap in the
+                # statistics graph instead of a real zero.
+                self._attr_native_value = 0
             else:
                 _LOGGER.warning(f"Failed to get daily energy for {self._hws_uuid}")
                 self._attr_native_value = None

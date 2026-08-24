@@ -16,6 +16,7 @@ from .const import (
     CONF_USERNAME,
     DEFAULT_CONNECTION_TIMEOUT,
     DEFAULT_HEALTH_CHECK,
+    DOMAIN,
 )
 
 
@@ -144,6 +145,23 @@ def effective_config(entry) -> dict[str, Any]:
     (entry.options), which HA layers separately rather than merging itself.
     """
     return {**entry.data, **entry.options}
+
+
+def device_info_for(hws_uuid: str, brand: str, serial_number: str) -> dict[str, Any]:
+    """Build the device_info dict shared by every entity for one HWS.
+
+    Same identifiers on every entity is what makes them group under one
+    device in HA -- water_heater.py and sensor.py's daily energy sensor build
+    this by hand (existing entities, left untouched to avoid any registry
+    churn); new sensors use this instead of a fourth copy-paste.
+    """
+    return {
+        "identifiers": {(DOMAIN, hws_uuid)},
+        "name": f"{brand} {serial_number}",
+        "manufacturer": brand,
+        "model": "Hot Water System",
+        "serial_number": serial_number,
+    }
 
 
 def create_hws(config: Mapping[str, Any]) -> EmeraldHWS:

@@ -16,7 +16,7 @@ from homeassistant.exceptions import ConfigEntryError, ConfigEntryNotReady
 from homeassistant.helpers import issue_registry as ir
 from homeassistant.helpers.dispatcher import dispatcher_send
 
-from .const import CONF_USERNAME, DOMAIN
+from .const import AWSCRT_STRADDLE_ISSUE_ID, CONF_USERNAME, DOMAIN
 from .helpers import create_hws, is_awscrt_straddle_error, signal_update
 
 _LOGGER = logging.getLogger(__name__)
@@ -83,6 +83,26 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         if is_awscrt_straddle_error(err):
             # Unrecoverable until Home Assistant restarts, so fail permanently
             # with the remedy rather than looping. See is_awscrt_straddle_error.
+            # Also surface it as a Repair (Settings > System > Repairs) with a
+            # one-click restart, since the log line alone is easy to miss.
+            ir.async_create_issue(
+                hass,
+                DOMAIN,
+                AWSCRT_STRADDLE_ISSUE_ID,
+                is_fixable=True,
+                severity=ir.IssueSeverity.ERROR,
+                translation_key="awscrt_version_straddle",
+            )
+            # Also surface it as a Repair (Settings > System > Repairs) with a
+            # one-click restart, since the log line alone is easy to miss.
+            ir.async_create_issue(
+                hass,
+                DOMAIN,
+                AWSCRT_STRADDLE_ISSUE_ID,
+                is_fixable=True,
+                severity=ir.IssueSeverity.ERROR,
+                translation_key="awscrt_version_straddle",
+            )
             raise ConfigEntryError(
                 "The installed awscrt package is a mix of two versions, so the "
                 "connection to the Emerald cloud cannot be established in this "
@@ -98,6 +118,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # Sign-in demonstrably works, so clear a rejection raised by an earlier attempt:
     # an Emerald-side outage resolves itself without the user touching anything.
     ir.async_delete_issue(hass, DOMAIN, _auth_issue_id(entry))
+    # Reaching here also means connect() succeeded, so any straddle issue from a
+    # previous attempt (this entry's or another's -- the issue is process-wide)
+    # no longer applies. async_delete_issue is a no-op if none exists.
+    ir.async_delete_issue(hass, DOMAIN, AWSCRT_STRADDLE_ISSUE_ID)
 
     # Past this point the instance holds a live MQTT connection with its own threads
     # and timers, so anything that fails has to hand it back before HA retries setup.

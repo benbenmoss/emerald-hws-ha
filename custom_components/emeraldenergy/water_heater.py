@@ -2,8 +2,6 @@
 
 import logging
 
-import homeassistant.helpers.config_validation as cv
-import voluptuous as vol
 from homeassistant import config_entries
 from homeassistant.components.water_heater import (
     STATE_ECO,
@@ -13,12 +11,7 @@ from homeassistant.components.water_heater import (
     WaterHeaterEntity,
     WaterHeaterEntityFeature,
 )
-from homeassistant.const import (
-    CONF_PASSWORD,
-    CONF_USERNAME,
-    PRECISION_WHOLE,
-    UnitOfTemperature,
-)
+from homeassistant.const import PRECISION_WHOLE, UnitOfTemperature
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
 
@@ -68,15 +61,6 @@ def tank_capacity_percent(current: float, target: float) -> tuple[int, int]:
     percent = int(round(clamped))
     rounded = int(round(clamped / 20) * 20)
     return percent, rounded
-
-
-PLATFORM_SCHEMA = vol.Schema(
-    {
-        vol.Required(CONF_USERNAME): cv.string,
-        vol.Required(CONF_PASSWORD): cv.string,
-    },
-    extra=vol.ALLOW_EXTRA,
-)
 
 
 async def async_setup_entry(

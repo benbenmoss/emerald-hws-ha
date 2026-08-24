@@ -50,10 +50,21 @@ async def async_setup_entry(
 
     # Create energy sensors for each hot water system
     for hws_uuid in hot_water_systems:
-        sensor = EmeraldEnergySensor(
-            hass, emerald_hws_instance, hws_uuid, config_entry.entry_id
+        sensors.append(
+            EmeraldEnergySensor(
+                hass, emerald_hws_instance, hws_uuid, config_entry.entry_id
+            )
         )
-        sensors.append(sensor)
+        sensors.append(
+            EmeraldWeeklyEnergySensor(
+                hass, emerald_hws_instance, hws_uuid, config_entry.entry_id
+            )
+        )
+        sensors.append(
+            EmeraldMonthlyEnergySensor(
+                hass, emerald_hws_instance, hws_uuid, config_entry.entry_id
+            )
+        )
 
     # Add energy sensors to Home Assistant
     if sensors:
@@ -163,6 +174,205 @@ class EmeraldEnergySensor(SensorEntity):
     def update(self):
         """Update the sensor state."""
         _LOGGER.debug(f"Updating energy sensor {self._attr_name}")
+        self.update_energy_value()
+
+    async def async_update(self) -> None:
+        """Update the sensor state asynchronously."""
+        await self._hass.async_add_executor_job(self.update)
+
+
+class EmeraldMonthlyEnergySensor(SensorEntity):
+    """Representation of an Emerald HWS monthly energy usage sensor."""
+
+    def __init__(
+        self,
+        hass: HomeAssistant,
+        emerald_hws_instance: EmeraldHWS,
+        hws_uuid: str,
+        entry_id: str,
+    ):
+        """Initialize the monthly energy sensor."""
+        self._hass = hass
+        self._emerald_hws = emerald_hws_instance
+        self._hws_uuid = hws_uuid
+        self._entry_id = entry_id
+        self._attr_native_value = None
+        self._attr_native_unit_of_measurement = UnitOfEnergy.KILO_WATT_HOUR
+        self._attr_device_class = SensorDeviceClass.ENERGY
+        self._attr_state_class = SensorStateClass.TOTAL
+        self._attr_icon = "mdi:calendar-month"
+        self._this_month = date.today().replace(day=1)
+        # Same reasoning as the daily sensor's last_reset: set at construction,
+        # not left None until the first observed month rollover.
+        self._last_reset = datetime.combine(self._this_month, datetime.min.time())
+
+        gi = emerald_hws_instance.getInfo(hws_uuid)
+        # Fall back rather than leaving these None: they land in the device
+        # registry, which is last-write-wins across every entity sharing the
+        # same device -- a None from any of them would blank out a value
+        # another entity successfully set.
+        self._serial_number = gi.get("serial_number") or hws_uuid
+        self._brand = gi.get("brand") or "Emerald"
+
+        self._attr_name = f"{self._brand} {self._serial_number} Monthly Energy"
+        self._attr_unique_id = f"{DOMAIN}_{hws_uuid}_monthly_energy"
+        self._attr_device_info = {
+            "identifiers": {(DOMAIN, hws_uuid)},
+            "name": f"{self._brand} {self._serial_number}",
+            "manufacturer": self._brand,
+            "model": "Hot Water System",
+            "serial_number": self._serial_number,
+        }
+
+        # Value left unset: async_add_entities(..., True) runs update() via
+        # the executor before this entity's state is ever written to HA.
+
+    @property
+    def last_reset(self):
+        """Return the time when the sensor was last reset (start of month)."""
+        return self._last_reset
+
+    async def async_added_to_hass(self) -> None:
+        """Connect to the shared dispatcher signal for this config entry."""
+        await super().async_added_to_hass()
+        self.async_on_remove(
+            async_dispatcher_connect(
+                self.hass, signal_update(self._entry_id), self._handle_update
+            )
+        )
+
+    @callback
+    def _handle_update(self) -> None:
+        """Schedule a state update when the dispatcher signal fires.
+
+        dispatcher_send hands this to hass.loop.call_soon_threadsafe, so this
+        always runs on the event loop, not the emerald_hws MQTT thread -- no
+        lock or hass-is-None guard needed, unlike the old CallbackDispatcher.
+        """
+        self.async_schedule_update_ha_state(True)
+
+    def update_energy_value(self):
+        """Update the energy value from the API."""
+        try:
+            current_month = date.today().replace(day=1)
+            rolled_over = current_month != self._this_month
+            if rolled_over:
+                self._this_month = current_month
+                self._last_reset = datetime.combine(current_month, datetime.min.time())
+                _LOGGER.info(f"Monthly energy sensor reset for {self._attr_name}")
+
+            monthly_energy = self._emerald_hws.getMonthlyEnergyUsage(self._hws_uuid)
+            if monthly_energy is not None:
+                self._attr_native_value = round(monthly_energy, 3)
+            elif rolled_over:
+                # Same reasoning as the daily sensor: no reading for this
+                # month yet is the expected value right after a TOTAL reset,
+                # not a failure.
+                self._attr_native_value = 0
+            else:
+                _LOGGER.warning(f"Failed to get monthly energy for {self._hws_uuid}")
+                self._attr_native_value = None
+        except Exception as e:
+            _LOGGER.error(f"Error updating monthly energy value for {self._hws_uuid}: {e}")
+            self._attr_native_value = None
+
+    def update(self):
+        """Update the sensor state."""
+        self.update_energy_value()
+
+    async def async_update(self) -> None:
+        """Update the sensor state asynchronously."""
+        await self._hass.async_add_executor_job(self.update)
+
+
+class EmeraldWeeklyEnergySensor(SensorEntity):
+    """Representation of an Emerald HWS rolling 7-day energy usage sensor.
+
+    This is a rolling sum (today plus the previous 6 days), not a period
+    total that resets on a boundary -- MEASUREMENT is the correct state_class
+    here, not TOTAL or TOTAL_INCREASING. Modelling a rolling window as either
+    would corrupt long-term statistics: a real drop in daily usage would read
+    as a meter reset. See getWeeklyEnergyUsage in emerald_hws.
+    """
+
+    def __init__(
+        self,
+        hass: HomeAssistant,
+        emerald_hws_instance: EmeraldHWS,
+        hws_uuid: str,
+        entry_id: str,
+    ):
+        """Initialize the weekly energy sensor."""
+        self._hass = hass
+        self._emerald_hws = emerald_hws_instance
+        self._hws_uuid = hws_uuid
+        self._entry_id = entry_id
+        self._attr_native_value = None
+        self._attr_native_unit_of_measurement = UnitOfEnergy.KILO_WATT_HOUR
+        # No device_class: HA's ENERGY device class only permits state_class
+        # total/total_increasing, and MEASUREMENT is the correct class for
+        # this rolling sum -- see the class docstring. Dropping device_class
+        # keeps the unit and MEASUREMENT together; it just won't feed the
+        # Energy dashboard, which is correct since a rolling window isn't a
+        # period total.
+        self._attr_state_class = SensorStateClass.MEASUREMENT
+        self._attr_icon = "mdi:calendar-week"
+
+        gi = emerald_hws_instance.getInfo(hws_uuid)
+        self._serial_number = gi.get("serial_number") or hws_uuid
+        self._brand = gi.get("brand") or "Emerald"
+
+        self._attr_name = f"{self._brand} {self._serial_number} Weekly Energy"
+        self._attr_unique_id = f"{DOMAIN}_{hws_uuid}_weekly_energy"
+        self._attr_device_info = {
+            "identifiers": {(DOMAIN, hws_uuid)},
+            "name": f"{self._brand} {self._serial_number}",
+            "manufacturer": self._brand,
+            "model": "Hot Water System",
+            "serial_number": self._serial_number,
+        }
+
+        # Value left unset: async_add_entities(..., True) runs update() via
+        # the executor before this entity's state is ever written to HA.
+
+    async def async_added_to_hass(self) -> None:
+        """Connect to the shared dispatcher signal for this config entry."""
+        await super().async_added_to_hass()
+        self.async_on_remove(
+            async_dispatcher_connect(
+                self.hass, signal_update(self._entry_id), self._handle_update
+            )
+        )
+
+    @callback
+    def _handle_update(self) -> None:
+        """Schedule a state update when the dispatcher signal fires.
+
+        dispatcher_send hands this to hass.loop.call_soon_threadsafe, so this
+        always runs on the event loop, not the emerald_hws MQTT thread -- no
+        lock or hass-is-None guard needed, unlike the old CallbackDispatcher.
+        """
+        self.async_schedule_update_ha_state(True)
+
+    def update_energy_value(self):
+        """Update the energy value from the API."""
+        try:
+            weekly_energy = self._emerald_hws.getWeeklyEnergyUsage(self._hws_uuid)
+            if weekly_energy is not None:
+                self._attr_native_value = round(weekly_energy, 3)
+            else:
+                # getWeeklyEnergyUsage only returns None when the HWS itself
+                # can't be found (no full_status at all) -- unlike the daily
+                # sensor, a rolling sum has no "not reported for this period
+                # yet" state, since sum({}) is just 0.
+                _LOGGER.warning(f"Failed to get weekly energy for {self._hws_uuid}")
+                self._attr_native_value = None
+        except Exception as e:
+            _LOGGER.error(f"Error updating weekly energy value for {self._hws_uuid}: {e}")
+            self._attr_native_value = None
+
+    def update(self):
+        """Update the sensor state."""
         self.update_energy_value()
 
     async def async_update(self) -> None:

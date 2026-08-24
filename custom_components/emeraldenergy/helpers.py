@@ -126,6 +126,21 @@ def signal_update(entry_id: str) -> str:
     return f"{DOMAIN}_{entry_id}_update"
 
 
+def device_info_for(hws_uuid: str, brand: str, serial_number: str) -> dict[str, Any]:
+    """Build the shared device_info dict for one HWS.
+
+    Same identifiers on every entity for a given HWS make them group under
+    one device in HA.
+    """
+    return {
+        "identifiers": {(DOMAIN, hws_uuid)},
+        "name": f"{brand} {serial_number}",
+        "manufacturer": brand,
+        "model": "Hot Water System",
+        "serial_number": serial_number,
+    }
+
+
 def create_hws(config: Mapping[str, Any]) -> EmeraldHWS:
     """Build an EmeraldHWS client from config entry data or config flow input.
 

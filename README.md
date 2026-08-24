@@ -14,7 +14,7 @@ _Integration with [emerald_hws_py](https://github.com/ross-w/emerald_hws_py)._
 | Platform       | Description                                                        |
 | -------------- | ------------------------------------------------------------------ |
 | `water_heater` | Creates a water heater control for all Emerald HWS on your account |
-| `sensor`       | Creates daily energy usage sensors for all Emerald HWS on your account (configurable) |
+| `sensor`       | Creates daily, weekly, and monthly energy usage sensors for all Emerald HWS on your account (configurable) |
 
 ## Installation
 
@@ -36,11 +36,21 @@ The integration setup includes the following options:
 - **Health Check Interval**: Maximum time expected between data updates before considering the connection unhealthy (default: 1 hour)
 - **Enable Energy Monitoring**: Create energy usage sensors (default: enabled)
 
+Each Emerald account can only be added once — adding the same username again re-opens the existing entry instead of creating a duplicate connection.
+
+**Changing these later:** Connection Timeout, Health Check Interval, and Enable Energy Monitoring can be changed at any time from the integration's **Configure** button, without removing and re-adding it (this reloads the integration to apply the new values). If Emerald rejects the stored password (e.g. after you change it in the Emerald app), Home Assistant prompts for reauthentication automatically — look for a "reconfigure" notification on the integration, or **Settings → Devices & Services**.
+
 ### Energy Monitoring
 
-When enabled, the integration creates sensors that track energy usage for each hot water system. These sensors Show cumulative energy usage in kWh for the current day, and automatically reset at midnight. They can be configured in the Home Assistant Energy dashboard.
+When enabled, the integration creates three sensors per hot water system:
 
-Please note Emerald only provides hourly energy data.
+| Sensor  | Behavior |
+| ------- | -------- |
+| Daily   | Cumulative kWh for the current day; resets to 0 at local midnight. Appears on the Home Assistant Energy dashboard. |
+| Weekly  | A rolling 7-day total (today plus the previous 6 days) — not a period that resets on a boundary, so it does **not** appear on the Energy dashboard; use it for at-a-glance trend, not long-term statistics. |
+| Monthly | Cumulative kWh for the current calendar month; resets to 0 at the start of each month. Appears on the Energy dashboard. |
+
+Please note Emerald only provides hourly energy data, and a sensor may briefly read 0 right after its reset boundary if the device hasn't pushed a reading for the new period yet.
 
 ## Mapping of Emerald terms to Home Assistant
 
@@ -106,9 +116,15 @@ both mean the same thing: two different versions of `awscrt` are loaded at once.
 
 Home Assistant loads `awscrt` long before this integration starts. `cloud` is set up in the first bootstrap stage, and it reaches `awscrt` through `hass_nabucasa` → `boto3`/`botocore`, whose compatibility module imports it unconditionally. If Home Assistant then upgrades `awscrt` on disk while installing this integration's requirements, everything imported afterwards comes from the new version while the modules already loaded stay on the old one, and the two halves meet when the integration connects.
 
-- **Restart Home Assistant.** That is the fix, and it is permanent — the next process loads one consistent copy from disk. Reloading the integration will not help: the mismatched modules are cached for the lifetime of the process, which is why setup keeps failing identically until a restart.
+When this happens, Home Assistant also raises a **Repair** (Settings → System → Repairs) with a one-click "Restart Home Assistant" fix — you don't need to dig through the logs to find this section unless you want the background.
+
+- **Restart Home Assistant** (via the Repair card, or manually). That is the fix, and it is permanent — the next process loads one consistent copy from disk. Reloading the integration will not help: the mismatched modules are cached for the lifetime of the process, which is why setup keeps failing identically until a restart.
 - Since `emerald_hws` 0.0.30 the integration no longer uses the `awscrt` code path responsible for the `_certificate_source` error, so that variant should not recur.
 - If it survives a restart, the copy on disk is itself mixed. Force a clean reinstall, then restart Home Assistant: `pip install --force-reinstall --no-cache-dir awscrt` (run it where HA's Python lives: the SSH/Terminal add-on, `docker exec` into the container, or your activated venv). Depending on your install method, recreating the Docker container or updating HAOS achieves the same thing.
+
+### Filing a bug report
+
+From the integration's page (**Settings → Devices & Services → Emerald HWS**), the three-dot menu on the entry offers **Download diagnostics** — a redacted JSON dump (no username, password, or serial number) of the connection state and each hot water system's status, mode, and energy history. Attaching it to a bug report saves a lot of back-and-forth.
 
 <!---->
 

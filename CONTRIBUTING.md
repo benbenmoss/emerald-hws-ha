@@ -44,7 +44,7 @@ People *love* thorough bug reports. I'm not even kidding.
 
 ## Use a Consistent Coding Style
 
-Use [black](https://github.com/ambv/black) to make sure the code follows the style.
+Use [ruff](https://github.com/astral-sh/ruff) to make sure the code follows the style; run `scripts/lint` (or `ruff check .`) before opening a PR.
 
 ## Test your code modification
 
@@ -55,6 +55,12 @@ if you use Visual Studio Code. With this container you will have a stand alone
 Home Assistant instance running and already configured with the included
 [`configuration.yaml`](./config/configuration.yaml)
 file.
+
+`tests/` covers the integration's pure logic (mode mapping, tank-capacity math, the
+awscrt/credentials error classifiers, energy sensor rollover behavior, diagnostics
+redaction) without needing a running Home Assistant instance. Run `scripts/setup`
+once to install `requirements.txt` (includes `pytest`), then `scripts/test` (or
+`pytest tests/ -v`) to run the suite.
 
 ## License
 

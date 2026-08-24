@@ -148,12 +148,11 @@ def effective_config(entry) -> dict[str, Any]:
 
 
 def device_info_for(hws_uuid: str, brand: str, serial_number: str) -> dict[str, Any]:
-    """Build the device_info dict shared by every entity for one HWS.
+    """Build the device_info dict used by the new sensors for one HWS.
 
-    Same identifiers on every entity is what makes them group under one
-    device in HA -- water_heater.py and sensor.py's daily energy sensor build
-    this by hand (existing entities, left untouched to avoid any registry
-    churn); new sensors use this instead of a fourth copy-paste.
+    Same identifiers on the new sensors make them group under one device in HA;
+    existing entities build this by hand, while new sensors use this helper
+    instead of another copy-paste.
     """
     return {
         "identifiers": {(DOMAIN, hws_uuid)},

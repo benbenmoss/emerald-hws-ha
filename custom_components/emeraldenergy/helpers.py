@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import re
 from collections.abc import Iterator, Mapping
 from pathlib import PurePath
@@ -18,6 +19,8 @@ from .const import (
     DEFAULT_HEALTH_CHECK,
     DOMAIN,
 )
+
+_LOGGER = logging.getLogger(__name__)
 
 
 # A compiled function rejecting its caller's argument count, e.g. "function takes
@@ -161,6 +164,41 @@ def device_info_for(hws_uuid: str, brand: str, serial_number: str) -> dict[str, 
         "model": "Hot Water System",
         "serial_number": serial_number,
     }
+
+
+class CallbackDrivenEntityMixin:
+    """Lifecycle shared by every entity registered with a CallbackDispatcher.
+
+    All four entity classes in sensor.py/water_heater.py reimplemented this
+    identically; the only thing that actually differs between them is what
+    update() does. List this mixin first in the entity's bases and set
+    self._hass/self._callback_dispatcher in __init__ as usual.
+    """
+
+    def update_callback(self) -> None:
+        """Schedule a state update when the dispatcher fires (module thread)."""
+        _LOGGER.debug("Callback for %s", self.name)
+        if self.hass is None:
+            # The emerald_hws MQTT thread can fire callbacks before the entity
+            # is added to HASS (or after removal). schedule_update_ha_state is
+            # thread-safe, but with self.hass is None it would raise
+            # "'NoneType' object has no attribute 'create_task'".
+            _LOGGER.debug(
+                "Dropping callback for %s; hass not set (entity not added yet "
+                "or already removed)",
+                self.name,
+            )
+            return
+        self.schedule_update_ha_state(True)
+
+    async def async_update(self) -> None:
+        """Update the entity state asynchronously."""
+        await self._hass.async_add_executor_job(self.update)
+
+    async def async_will_remove_from_hass(self) -> None:
+        """Clean up when entity is removed from Home Assistant."""
+        self._callback_dispatcher.unregister_callback(self.update_callback)
+        await super().async_will_remove_from_hass()
 
 
 def create_hws(config: Mapping[str, Any]) -> EmeraldHWS:

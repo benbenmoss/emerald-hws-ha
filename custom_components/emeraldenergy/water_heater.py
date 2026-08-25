@@ -18,6 +18,7 @@ from homeassistant.exceptions import HomeAssistantError
 from .const import (
     DOMAIN,
 )
+from .helpers import CallbackDrivenEntityMixin
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -95,7 +96,7 @@ async def async_setup_entry(
     return True
 
 
-class EmeraldWaterHeater(WaterHeaterEntity):
+class EmeraldWaterHeater(CallbackDrivenEntityMixin, WaterHeaterEntity):
     """Representation of a water heater."""
 
     def __init__(self, hass, emerald_hws_instance, hws_uuid, callback_dispatcher):
@@ -243,22 +244,6 @@ class EmeraldWaterHeater(WaterHeaterEntity):
             _call_hws, "turn off", self._emerald_hws.turnOff, self._hws_uuid
         )
 
-    def update_callback(self):
-        """Schedules an update within HASS (called from the module's thread)."""
-        _LOGGER.debug("emeraldhws: callback called")
-        if self.hass is None:
-            # The emerald_hws MQTT thread can fire callbacks before the entity
-            # is added to HASS (or after removal). schedule_update_ha_state is
-            # thread-safe, but with self.hass is None it would raise
-            # "'NoneType' object has no attribute 'create_task'".
-            _LOGGER.debug(
-                "Dropping callback for %s; hass not set (entity not added yet "
-                "or already removed)",
-                self._name,
-            )
-            return
-        self.schedule_update_ha_state(True)
-
     def update(self):
         """Update with values from HWS."""
         _LOGGER.debug("emeraldhws: updating internal state from module")
@@ -271,13 +256,3 @@ class EmeraldWaterHeater(WaterHeaterEntity):
             self._current_mode = self._emerald_hws.currentMode(self._hws_uuid)
             self._is_heating = self._emerald_hws.isHeating(self._hws_uuid)
         return
-
-    async def async_update(self) -> None:
-        """Update the water heater state."""
-        await self._hass.async_add_executor_job(self.update)
-
-    async def async_will_remove_from_hass(self) -> None:
-        """Clean up when entity is removed from Home Assistant."""
-        # Unregister from callback dispatcher
-        self._callback_dispatcher.unregister_callback(self.update_callback)
-        await super().async_will_remove_from_hass()

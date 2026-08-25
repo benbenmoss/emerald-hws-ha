@@ -2,8 +2,6 @@
 
 import logging
 
-import homeassistant.helpers.config_validation as cv
-import voluptuous as vol
 from homeassistant import config_entries
 from homeassistant.components.water_heater import (
     STATE_ECO,
@@ -13,20 +11,14 @@ from homeassistant.components.water_heater import (
     WaterHeaterEntity,
     WaterHeaterEntityFeature,
 )
-from homeassistant.const import (
-    CONF_PASSWORD,
-    CONF_USERNAME,
-    PRECISION_WHOLE,
-    UnitOfTemperature,
-)
-from homeassistant.core import HomeAssistant, callback
+from homeassistant.const import PRECISION_WHOLE, UnitOfTemperature
+from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
-from homeassistant.helpers.dispatcher import async_dispatcher_connect
 
 from .const import (
     DOMAIN,
 )
-from .helpers import signal_update
+from .helpers import CallbackDrivenEntityMixin, device_info_for
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -54,15 +46,6 @@ def _call_hws(action: str, func, *args) -> None:
         raise HomeAssistantError(
             f"Failed to send '{action}' to the Emerald hot water system: {err}"
         ) from err
-
-
-PLATFORM_SCHEMA = vol.Schema(
-    {
-        vol.Required(CONF_USERNAME): cv.string,
-        vol.Required(CONF_PASSWORD): cv.string,
-    },
-    extra=vol.ALLOW_EXTRA,
-)
 
 
 async def async_setup_entry(
@@ -94,7 +77,7 @@ async def async_setup_entry(
     return True
 
 
-class EmeraldWaterHeater(WaterHeaterEntity):
+class EmeraldWaterHeater(CallbackDrivenEntityMixin, WaterHeaterEntity):
     """Representation of a water heater."""
 
     def __init__(self, hass, emerald_hws_instance, hws_uuid, entry_id):
@@ -112,15 +95,10 @@ class EmeraldWaterHeater(WaterHeaterEntity):
         self._serial_number = gi.get("serial_number") or hws_uuid
         self._brand = gi.get("brand") or "Emerald"
         self._name = f"{self._brand} {self._serial_number}"
-        # Same identifiers as sensor.py's device_info so both entities group
-        # under one device instead of two.
-        self._attr_device_info = {
-            "identifiers": {(DOMAIN, hws_uuid)},
-            "name": self._name,
-            "manufacturer": self._brand,
-            "model": "Hot Water System",
-            "serial_number": self._serial_number,
-        }
+        # Matches sensor.py's device_info so both entities group under one device.
+        self._attr_device_info = device_info_for(
+            hws_uuid, self._brand, self._serial_number
+        )
         self._current_temperature = status.get("last_state").get("temp_current")
         self._target_temperature = status.get("last_state").get("temp_set")
         self._running = emerald_hws_instance.isOn(hws_uuid)
@@ -252,25 +230,6 @@ class EmeraldWaterHeater(WaterHeaterEntity):
             _call_hws, "turn off", self._emerald_hws.turnOff, self._hws_uuid
         )
 
-    async def async_added_to_hass(self) -> None:
-        """Connect to the shared dispatcher signal for this config entry."""
-        await super().async_added_to_hass()
-        self.async_on_remove(
-            async_dispatcher_connect(
-                self.hass, signal_update(self._entry_id), self._handle_update
-            )
-        )
-
-    @callback
-    def _handle_update(self) -> None:
-        """Schedule a state update when the dispatcher signal fires.
-
-        dispatcher_send hands this to hass.loop.call_soon_threadsafe, so this
-        always runs on the event loop, not the emerald_hws MQTT thread -- no
-        lock or hass-is-None guard needed, unlike the old CallbackDispatcher.
-        """
-        self.async_schedule_update_ha_state(True)
-
     def update(self):
         """Update with values from HWS."""
         _LOGGER.info("emeraldhws: updating internal state from module")
@@ -283,7 +242,3 @@ class EmeraldWaterHeater(WaterHeaterEntity):
             self._current_mode = self._emerald_hws.currentMode(self._hws_uuid)
             self._is_heating = self._emerald_hws.isHeating(self._hws_uuid)
         return
-
-    async def async_update(self) -> None:
-        """Update the water heater state."""
-        await self._hass.async_add_executor_job(self.update)

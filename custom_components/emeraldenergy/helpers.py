@@ -151,11 +151,10 @@ def effective_config(entry) -> dict[str, Any]:
 
 
 def device_info_for(hws_uuid: str, brand: str, serial_number: str) -> dict[str, Any]:
-    """Build the device_info dict used by the new sensors for one HWS.
+    """Build the shared device_info dict for one HWS.
 
-    Same identifiers on the new sensors make them group under one device in HA;
-    existing entities build this by hand, while new sensors use this helper
-    instead of another copy-paste.
+    Same identifiers on every entity for a given HWS make them group under
+    one device in HA.
     """
     return {
         "identifiers": {(DOMAIN, hws_uuid)},

@@ -18,7 +18,7 @@ from homeassistant.exceptions import HomeAssistantError
 from .const import (
     DOMAIN,
 )
-from .helpers import CallbackDrivenEntityMixin
+from .helpers import CallbackDrivenEntityMixin, device_info_for
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -106,8 +106,12 @@ class EmeraldWaterHeater(CallbackDrivenEntityMixin, WaterHeaterEntity):
         self._hws_uuid = hws_uuid
         self._callback_dispatcher = callback_dispatcher
         gi = emerald_hws_instance.getInfo(hws_uuid)
-        self._serial_number = gi.get("serial_number")
-        self._brand = gi.get("brand")
+        # Fall back rather than leaving these None: they land in the device
+        # registry, which is last-write-wins across this entity and the energy
+        # sensor sharing the same device -- a None from either would blank out
+        # a value the other successfully set.
+        self._serial_number = gi.get("serial_number") or hws_uuid
+        self._brand = gi.get("brand") or "Emerald"
         self._name = f"{self._brand} {self._serial_number}"
         self._operation_list = [
             STATE_HEAT_PUMP,
@@ -127,13 +131,9 @@ class EmeraldWaterHeater(CallbackDrivenEntityMixin, WaterHeaterEntity):
         self._attr_icon = "mdi:water-boiler"
         self._attr_precision = PRECISION_WHOLE
         # Matches sensor.py's device_info so both entities group under one device.
-        self._attr_device_info = {
-            "identifiers": {(DOMAIN, hws_uuid)},
-            "name": self._name,
-            "manufacturer": self._brand,
-            "model": "Hot Water System",
-            "serial_number": self._serial_number,
-        }
+        self._attr_device_info = device_info_for(
+            hws_uuid, self._brand, self._serial_number
+        )
         # Register with the callback dispatcher instead of directly with the API
         callback_dispatcher.register_callback(self.update_callback)
 

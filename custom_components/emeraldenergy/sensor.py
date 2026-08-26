@@ -107,21 +107,21 @@ class EmeraldEnergySensor(CallbackDrivenEntityMixin, SensorEntity):
 
         # Get device info for proper integration
         gi = emerald_hws_instance.getInfo(hws_uuid)
-        self._serial_number = gi.get("serial_number")
-        self._brand = gi.get("brand", "Emerald")
+        # Fall back rather than leaving these None: they land in the device
+        # registry, which is last-write-wins across this entity and the water
+        # heater sharing the same device -- a None from either would blank out
+        # a value the other successfully set.
+        self._serial_number = gi.get("serial_number") or hws_uuid
+        self._brand = gi.get("brand") or "Emerald"
 
         # Set up sensor properties
         self._attr_name = f"{self._brand} {self._serial_number} Daily Energy"
         self._attr_unique_id = f"{DOMAIN}_{hws_uuid}_daily_energy"
 
         # Set up device info for proper grouping with water heater
-        self._attr_device_info = {
-            "identifiers": {(DOMAIN, hws_uuid)},
-            "name": f"{self._brand} {self._serial_number}",
-            "manufacturer": self._brand,
-            "model": "Hot Water System",
-            "serial_number": self._serial_number,
-        }
+        self._attr_device_info = device_info_for(
+            hws_uuid, self._brand, self._serial_number
+        )
 
         # Register for updates with callback dispatcher
         callback_dispatcher.register_callback(self.update_callback)

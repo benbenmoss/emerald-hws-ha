@@ -48,7 +48,11 @@ class CallbackDispatcher:
     def dispatch(self):
         """Dispatch the callback to all registered listeners."""
         _LOGGER.debug(f"Dispatching callback to {len(self._callbacks)} listeners")
-        for callback in self._callbacks:
+        # Snapshot: this runs on the emerald_hws MQTT thread while
+        # register_callback/unregister_callback run on the event-loop thread, so
+        # iterating the live list risks a "list changed size during iteration"
+        # error or a skipped callback.
+        for callback in list(self._callbacks):
             try:
                 callback()
             except Exception:

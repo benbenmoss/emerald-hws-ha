@@ -27,10 +27,11 @@ def test_mode_to_op_state_known_modes():
     assert _mode_to_op_state(2) == STATE_ECO
 
 
-def test_mode_to_op_state_unknown_mode_falls_back_instead_of_none():
-    """Regression: used to return None, outside operation_list."""
-    assert _mode_to_op_state(99) == STATE_HEAT_PUMP
-    assert _mode_to_op_state(None) == STATE_HEAT_PUMP
+def test_mode_to_op_state_unknown_mode_returns_none():
+    """Unrecognised mode -> None, so HA reports the state as unknown rather
+    than a guessed operation the unit may not actually be in."""
+    assert _mode_to_op_state(99) is None
+    assert _mode_to_op_state(None) is None
 
 
 def test_tank_capacity_percent_at_target():

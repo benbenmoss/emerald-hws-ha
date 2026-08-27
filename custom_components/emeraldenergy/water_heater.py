@@ -193,10 +193,12 @@ class EmeraldWaterHeater(WaterHeaterEntity):
             return STATE_PERFORMANCE
         elif mode == 2:
             return STATE_ECO
-        # An unrecognised mode int would otherwise return None here, which is
-        # not a member of operation_list and fails HA's state validation.
+        # None -> HA reports the state as "unknown" (WaterHeaterEntity's state
+        # allows str | None), which is honest about not knowing the mode.
+        # Guessing a real operation here would let a user act on a mode the
+        # unit may not actually be in.
         _LOGGER.warning("emeraldhws: unknown mode %r for %s", mode, self._name)
-        return STATE_HEAT_PUMP
+        return None
 
     def set_operation_mode(self, operation_mode: str) -> None:
         """Set the internal state given a HASS state."""

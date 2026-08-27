@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import threading
 from collections.abc import Mapping
 from typing import Any
 
@@ -28,31 +29,41 @@ class CallbackDispatcher:
     def __init__(self):
         """Initialize the callback dispatcher."""
         self._callbacks = []
+        # Guards _callbacks: register/unregister run on the event-loop thread,
+        # dispatch() runs on the emerald_hws MQTT thread. Without this, list
+        # mutation and the dispatch snapshot below race.
+        self._lock = threading.Lock()
 
     def register_callback(self, callback):
         """Register a callback function."""
-        if callback not in self._callbacks:
+        with self._lock:
+            if callback in self._callbacks:
+                return
             self._callbacks.append(callback)
-            _LOGGER.debug(
-                f"Registered callback. Total callbacks: {len(self._callbacks)}"
-            )
+            count = len(self._callbacks)
+        _LOGGER.debug(f"Registered callback. Total callbacks: {count}")
 
     def unregister_callback(self, callback):
         """Unregister a callback function."""
-        if callback in self._callbacks:
+        with self._lock:
+            if callback not in self._callbacks:
+                return
             self._callbacks.remove(callback)
-            _LOGGER.debug(
-                f"Unregistered callback. Total callbacks: {len(self._callbacks)}"
-            )
+            count = len(self._callbacks)
+        _LOGGER.debug(f"Unregistered callback. Total callbacks: {count}")
 
     def dispatch(self):
         """Dispatch the callback to all registered listeners."""
-        _LOGGER.debug(f"Dispatching callback to {len(self._callbacks)} listeners")
-        # Snapshot: this runs on the emerald_hws MQTT thread while
-        # register_callback/unregister_callback run on the event-loop thread, so
-        # iterating the live list risks inconsistent iteration that can skip or
-        # revisit callbacks.
-        for callback in list(self._callbacks):
+        # Snapshot under the lock so this can't race register/unregister. A
+        # callback unregistered right after the snapshot is taken still fires
+        # once more -- holding the lock across the callback() calls below would
+        # close that too, but callback() runs into entity code that can call
+        # back into hass, so holding a lock across it risks deadlocking with
+        # the event loop thread. That residual window is accepted, not fixed.
+        with self._lock:
+            callbacks = list(self._callbacks)
+        _LOGGER.debug(f"Dispatching callback to {len(callbacks)} listeners")
+        for callback in callbacks:
             try:
                 callback()
             except Exception:

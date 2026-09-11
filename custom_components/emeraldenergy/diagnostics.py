@@ -9,6 +9,7 @@ from homeassistant.components.diagnostics import async_redact_data
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_PASSWORD, CONF_USERNAME
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers import entity_platform as ep
 
 from .const import DOMAIN
 from .helpers import effective_config
@@ -83,8 +84,11 @@ async def async_get_config_entry_diagnostics(
 
     if entry_data is not None:
         instance = entry_data["instance"]
-        dispatcher = entry_data["dispatcher"]
-        diagnostics["registered_entity_callbacks"] = dispatcher.callback_count
+        diagnostics["registered_entity_callbacks"] = sum(
+            len(platform.entities)
+            for platform in ep.async_get_platforms(hass, DOMAIN)
+            if platform.config_entry and platform.config_entry.entry_id == entry.entry_id
+        )
 
         try:
             diagnostics["hot_water_systems"] = await hass.async_add_executor_job(

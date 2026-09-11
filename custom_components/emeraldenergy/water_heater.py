@@ -79,14 +79,13 @@ async def async_setup_entry(
         raise HomeAssistantError("No Emerald HWS data found in hass data")
 
     emerald_hws_instance = entry_data["instance"]
-    callback_dispatcher = entry_data["dispatcher"]
 
     # Fetch the list of hot water systems (UUIDs)
     hot_water_systems = await hass.async_add_executor_job(emerald_hws_instance.listHWS)
 
     # Create water heater entities for each hot water system
     water_heaters = [
-        EmeraldWaterHeater(hass, emerald_hws_instance, hws_uuid, callback_dispatcher)
+        EmeraldWaterHeater(hass, emerald_hws_instance, hws_uuid, config_entry.entry_id)
         for hws_uuid in hot_water_systems
     ]
 
@@ -99,12 +98,12 @@ async def async_setup_entry(
 class EmeraldWaterHeater(CallbackDrivenEntityMixin, WaterHeaterEntity):
     """Representation of a water heater."""
 
-    def __init__(self, hass, emerald_hws_instance, hws_uuid, callback_dispatcher):
+    def __init__(self, hass, emerald_hws_instance, hws_uuid, entry_id):
         """Initialize the water heater."""
         self._emerald_hws = emerald_hws_instance
         self._hass = hass
         self._hws_uuid = hws_uuid
-        self._callback_dispatcher = callback_dispatcher
+        self._entry_id = entry_id
         gi = emerald_hws_instance.getInfo(hws_uuid)
         # Fall back rather than leaving these None: they land in the device
         # registry, which is last-write-wins across this entity and the energy
@@ -134,8 +133,6 @@ class EmeraldWaterHeater(CallbackDrivenEntityMixin, WaterHeaterEntity):
         self._attr_device_info = device_info_for(
             hws_uuid, self._brand, self._serial_number
         )
-        # Register with the callback dispatcher instead of directly with the API
-        callback_dispatcher.register_callback(self.update_callback)
 
     @property
     def supported_features(self) -> int:

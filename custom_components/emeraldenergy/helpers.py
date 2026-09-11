@@ -152,7 +152,10 @@ class CallbackDrivenEntityMixin:
     All four entity classes in sensor.py/water_heater.py reimplemented this
     identically; the only thing that actually differs between them is what
     update() does. List this mixin first in the entity's bases and set
-    self._hass/self._entry_id in __init__ as usual.
+    self._entry_id in __init__ as usual -- self.hass is Entity's own, no need
+    to keep a private copy (Entity.async_device_update also handles running
+    update() via the executor automatically, so no async_update override is
+    needed here either).
     """
 
     async def async_added_to_hass(self) -> None:
@@ -173,10 +176,6 @@ class CallbackDrivenEntityMixin:
         lock or hass-is-None guard needed, unlike the old CallbackDispatcher.
         """
         self.async_schedule_update_ha_state(True)
-
-    async def async_update(self) -> None:
-        """Update the entity state asynchronously."""
-        await self._hass.async_add_executor_job(self.update)
 
 
 def create_hws(config: Mapping[str, Any]) -> EmeraldHWS:

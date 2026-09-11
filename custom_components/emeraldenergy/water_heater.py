@@ -84,7 +84,7 @@ async def async_setup_entry(
 
     # Create water heater entities for each hot water system
     water_heaters = [
-        EmeraldWaterHeater(hass, emerald_hws_instance, hws_uuid, callback_dispatcher)
+        EmeraldWaterHeater(emerald_hws_instance, hws_uuid, callback_dispatcher)
         for hws_uuid in hot_water_systems
     ]
 
@@ -97,10 +97,9 @@ async def async_setup_entry(
 class EmeraldWaterHeater(CallbackDrivenEntityMixin, WaterHeaterEntity):
     """Representation of a water heater."""
 
-    def __init__(self, hass, emerald_hws_instance, hws_uuid, callback_dispatcher):
+    def __init__(self, emerald_hws_instance, hws_uuid, callback_dispatcher):
         """Initialize the water heater."""
         self._emerald_hws = emerald_hws_instance
-        self._hass = hass
         self._hws_uuid = hws_uuid
         self._callback_dispatcher = callback_dispatcher
         gi = emerald_hws_instance.getInfo(hws_uuid)
@@ -223,17 +222,17 @@ class EmeraldWaterHeater(CallbackDrivenEntityMixin, WaterHeaterEntity):
 
     async def async_set_operation_mode(self, operation_mode):
         """Schedule the sync function to set the operation mode."""
-        await self._hass.async_add_executor_job(self.set_operation_mode, operation_mode)
+        await self.hass.async_add_executor_job(self.set_operation_mode, operation_mode)
 
     async def async_turn_on(self):
         """Turn on the Emerald unit."""
-        await self._hass.async_add_executor_job(
+        await self.hass.async_add_executor_job(
             _call_hws, "turn on", self._emerald_hws.turnOn, self._hws_uuid
         )
 
     async def async_turn_off(self):
         """Turn off the Emerald unit."""
-        await self._hass.async_add_executor_job(
+        await self.hass.async_add_executor_job(
             _call_hws, "turn off", self._emerald_hws.turnOff, self._hws_uuid
         )
 

@@ -51,7 +51,7 @@ async def async_setup_entry(
     # Create energy sensors for each hot water system
     for hws_uuid in hot_water_systems:
         sensor = EmeraldEnergySensor(
-            hass, emerald_hws_instance, hws_uuid, callback_dispatcher
+            emerald_hws_instance, hws_uuid, callback_dispatcher
         )
         sensors.append(sensor)
 
@@ -68,13 +68,11 @@ class EmeraldEnergySensor(CallbackDrivenEntityMixin, SensorEntity):
 
     def __init__(
         self,
-        hass: HomeAssistant,
         emerald_hws_instance: EmeraldHWS,
         hws_uuid: str,
         callback_dispatcher,
     ):
         """Initialize the energy sensor."""
-        self._hass = hass
         self._emerald_hws = emerald_hws_instance
         self._hws_uuid = hws_uuid
         self._callback_dispatcher = callback_dispatcher

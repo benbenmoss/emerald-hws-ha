@@ -144,7 +144,10 @@ class CallbackDrivenEntityMixin:
     Both entity classes in sensor.py/water_heater.py reimplemented this
     identically; the only thing that actually differs between them is what
     update() does. List this mixin first in the entity's bases and set
-    self._hass/self._callback_dispatcher in __init__ as usual.
+    self._callback_dispatcher in __init__ as usual -- self.hass is Entity's
+    own, no need to keep a private copy (Entity.async_device_update also
+    handles running update() via the executor automatically, so no
+    async_update override is needed here either).
     """
 
     def update_callback(self) -> None:
@@ -162,10 +165,6 @@ class CallbackDrivenEntityMixin:
             )
             return
         self.schedule_update_ha_state(True)
-
-    async def async_update(self) -> None:
-        """Update the entity state asynchronously."""
-        await self._hass.async_add_executor_job(self.update)
 
     async def async_will_remove_from_hass(self) -> None:
         """Clean up when entity is removed from Home Assistant."""

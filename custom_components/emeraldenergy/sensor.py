@@ -54,18 +54,16 @@ async def async_setup_entry(
     # Create energy sensors for each hot water system
     for hws_uuid in hot_water_systems:
         sensors.append(
-            EmeraldEnergySensor(
-                hass, emerald_hws_instance, hws_uuid, config_entry.entry_id
-            )
+            EmeraldEnergySensor(emerald_hws_instance, hws_uuid, config_entry.entry_id)
         )
         sensors.append(
             EmeraldWeeklyEnergySensor(
-                hass, emerald_hws_instance, hws_uuid, config_entry.entry_id
+                emerald_hws_instance, hws_uuid, config_entry.entry_id
             )
         )
         sensors.append(
             EmeraldMonthlyEnergySensor(
-                hass, emerald_hws_instance, hws_uuid, config_entry.entry_id
+                emerald_hws_instance, hws_uuid, config_entry.entry_id
             )
         )
 
@@ -82,13 +80,11 @@ class EmeraldEnergySensor(CallbackDrivenEntityMixin, SensorEntity):
 
     def __init__(
         self,
-        hass: HomeAssistant,
         emerald_hws_instance: EmeraldHWS,
         hws_uuid: str,
         entry_id: str,
     ):
         """Initialize the energy sensor."""
-        self._hass = hass
         self._emerald_hws = emerald_hws_instance
         self._hws_uuid = hws_uuid
         self._entry_id = entry_id
@@ -176,13 +172,11 @@ class EmeraldMonthlyEnergySensor(CallbackDrivenEntityMixin, SensorEntity):
 
     def __init__(
         self,
-        hass: HomeAssistant,
         emerald_hws_instance: EmeraldHWS,
         hws_uuid: str,
         entry_id: str,
     ):
         """Initialize the monthly energy sensor."""
-        self._hass = hass
         self._emerald_hws = emerald_hws_instance
         self._hws_uuid = hws_uuid
         self._entry_id = entry_id
@@ -254,13 +248,11 @@ class EmeraldWeeklyEnergySensor(CallbackDrivenEntityMixin, SensorEntity):
 
     def __init__(
         self,
-        hass: HomeAssistant,
         emerald_hws_instance: EmeraldHWS,
         hws_uuid: str,
         entry_id: str,
     ):
         """Initialize the weekly energy sensor."""
-        self._hass = hass
         self._emerald_hws = emerald_hws_instance
         self._hws_uuid = hws_uuid
         self._entry_id = entry_id

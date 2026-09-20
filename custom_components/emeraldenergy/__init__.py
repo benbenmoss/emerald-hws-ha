@@ -16,7 +16,13 @@ from homeassistant.exceptions import ConfigEntryError, ConfigEntryNotReady
 from homeassistant.helpers import issue_registry as ir
 from homeassistant.helpers.dispatcher import dispatcher_send
 
-from .const import AWSCRT_STRADDLE_ISSUE_ID, CONF_USERNAME, DOMAIN
+from .const import (
+    AWSCRT_STRADDLE_ISSUE_ID,
+    CONF_HEALTH_CHECK,
+    CONF_USERNAME,
+    DEFAULT_HEALTH_CHECK,
+    DOMAIN,
+)
 from .helpers import create_hws, is_awscrt_straddle_error, signal_update
 
 _LOGGER = logging.getLogger(__name__)
@@ -24,6 +30,42 @@ _LOGGER = logging.getLogger(__name__)
 # TODO List the platforms that you want to support.
 # For your initial PR, limit it to 1 platform.
 PLATFORMS: list[Platform] = [Platform.WATER_HEATER, Platform.SENSOR]
+
+# The pre-migration DEFAULT_HEALTH_CHECK, not the current one: this is what
+# async_migrate_entry checks a v1 entry's stored value against, and must stay
+# 60 regardless of any future change to the live default in const.py.
+_V1_DEFAULT_HEALTH_CHECK = 60
+
+
+async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+    """Migrate a config entry from an older version.
+
+    v1 -> v2: DEFAULT_HEALTH_CHECK dropped from 60 to 10 minutes (a silently
+    stalled MQTT connection could otherwise sit undetected for up to the old
+    default's full hour). Changing the constant only affects entries created
+    from here on -- an entry from before this fix has 60 baked into its
+    stored data (and, if the options flow was ever submitted even just to
+    change something unrelated, into entry.options too -- the form always
+    resubmits every field, not just the one the user touched) and would
+    keep it forever without this migration. A lower health-check interval
+    is never worse than a higher one (it only makes stale-connection
+    detection faster), so any entry still at the old default is safe to
+    bump; a genuinely custom value (anything else) is left untouched.
+    """
+    if entry.version == 1:
+        new_data = {**entry.data}
+        if new_data.get(CONF_HEALTH_CHECK) == _V1_DEFAULT_HEALTH_CHECK:
+            new_data[CONF_HEALTH_CHECK] = DEFAULT_HEALTH_CHECK
+
+        new_options = {**entry.options}
+        if new_options.get(CONF_HEALTH_CHECK) == _V1_DEFAULT_HEALTH_CHECK:
+            new_options[CONF_HEALTH_CHECK] = DEFAULT_HEALTH_CHECK
+
+        hass.config_entries.async_update_entry(
+            entry, data=new_data, options=new_options, version=2
+        )
+
+    return True
 
 
 def _auth_issue_id(entry: ConfigEntry) -> str:
@@ -83,16 +125,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         if is_awscrt_straddle_error(err):
             # Unrecoverable until Home Assistant restarts, so fail permanently
             # with the remedy rather than looping. See is_awscrt_straddle_error.
-            # Also surface it as a Repair (Settings > System > Repairs) with a
-            # one-click restart, since the log line alone is easy to miss.
-            ir.async_create_issue(
-                hass,
-                DOMAIN,
-                AWSCRT_STRADDLE_ISSUE_ID,
-                is_fixable=True,
-                severity=ir.IssueSeverity.ERROR,
-                translation_key="awscrt_version_straddle",
-            )
             # Also surface it as a Repair (Settings > System > Repairs) with a
             # one-click restart, since the log line alone is easy to miss.
             ir.async_create_issue(
